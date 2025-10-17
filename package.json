@@ -1,0 +1,16 @@
+{
+  "name": "talk-to-your-data",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Full-stack app to query banking data using natural language",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && node server.js",
+    "client": "cd client && npm run dev",
+    "seed": "cd server && node db_setup.js"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "devDependencies": {}
+}
