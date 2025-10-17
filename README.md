@@ -212,56 +212,187 @@ The app includes these tables:
    git init
    git add .
    git commit -m "Initial project scaffold: talk-to-your-data"
-   git remote add origin https://github.com/Bilalabbasid/Talk-to-your-data.git
-   git branch -M main
-   git push -u origin main
+   # Talk to Your Data
+
+   Full-stack demo to convert Natural Language queries into SQL and return friendly results using an SQLite database seeded with realistic banking tables.
+
+   ## Project Structure
+
+   ```
+   talk-to-your-data/
+   ├─ server/              # Backend (Express + SQLite)
+   │  ├─ server.js
+      ├─ db_setup.js
+      ├─ package.json
+      └─ db/              # SQLite database (created on first run)
+   ├─ client/             # Frontend (React + Vite)
+   │  ├─ src/
+      ├─ package.json
+      └─ vite.config.js
+   └─ package.json        # Root package for concurrent dev scripts
    ```
 
-   If the repo already exists and is linked, just run:
+   ## Quick Start
+
+   1. **Install root dependencies:**
+       ```powershell
+       npm install
+       ```
+
+   2. **Install server dependencies:**
+       ```powershell
+       cd server
+       npm install
+       cd ..
+       ```
+
+   3. **Install client dependencies:**
+       ```powershell
+       cd client
+       npm install
+       cd ..
+       ```
+
+   4. **Run development mode (from root):**
+       ```powershell
+       npm run dev
+       ```
+
+       This starts both the Express backend (port 4000) and Vite frontend (port 5173) concurrently.
+
+   5. **Open your browser:**
+       Navigate to http://localhost:5173
+
+   ---
+
+   ## LLM integration status
+
+   - Current state: The server contains a small placeholder translator `nl2sqlPlaceholder` that only handles a few hard-coded phrases. The app will work as a chat-like UI without an LLM, but it cannot translate arbitrary natural language into SQL yet.
+   - To enable LLM-based NL→SQL translation you must add an OpenAI (or other LLM) key and wire the SDK into `server/server.js`. The README below includes a paste-ready function and short steps.
+
+   ---
+
+   ## How the app is structured (plain English)
+
+   - `server/` — The backend. It runs an Express server, creates a local SQLite DB at `server/db/banking.db` on first run, and exposes endpoints like `/schema`, `/query`, `/export-pdf`.
+   - `client/` — The frontend (React + Vite). It sends queries to `/query` and displays results.
+   - `.env` — Add `OPENAI_API_KEY=sk-...` here to enable LLM functionality.
+
+   ---
+
+   ## Where the SQLite DB lives & how to open it
+
+   - The database file (after you run the app) will be at `server/db/banking.db`.
+   - To inspect it visually, use DB Browser for SQLite: https://sqlitebrowser.org/
+
+   Steps to inspect:
+
+   1. Close the app if it's running.
+   2. Open DB Browser for SQLite.
+   3. File → Open Database → select `server/db/banking.db`.
+   4. Browse tables like `transactions`, `accounts`, and `loans`.
+
+   ---
+
+   ## How the NL → SQL flow works (and where to attach an LLM)
+
+   - The server function `nl2sqlPlaceholder` is the translation layer. Replace it with an LLM call to produce SQL from arbitrary natural language.
+
+   Quick paste-ready LLM function (OpenAI) — drop into `server/server.js` after installing `openai` in `server/`:
+
+   ```js
+   // Requires `npm install openai` inside server/
+   const { OpenAI } = require('openai');
+   const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+
+   function sanitizeSqlCandidate(raw) {
+      if (!raw) return null;
+      let sql = raw.replace(/`/g, '').trim();
+      if (sql.includes(';')) sql = sql.split(';')[0];
+      const forbidden = /\b(drop|delete|update|insert|alter|create|attach|detach|replace)\b/i;
+      if (forbidden.test(sql)) return null;
+      if (!/^\s*(select|pragma)/i.test(sql)) return null;
+      if (!/limit\s+\d+/i.test(sql)) sql = sql.replace(/;?$/, '') + ' LIMIT 100';
+      return sql;
+   }
+
+   async function nl2sqlPlaceholder(nl, schema) {
+      if (!openai) return { sql: null, reason: 'OPENAI_API_KEY not set' };
+      const schemaHint = Object.entries(schema).map(([t, cols]) => `${t}(${cols.join(',')})`).join(' | ');
+      const messages = [
+         { role: 'system', content: 'You are a SQL generator that outputs a single SQLite SELECT or PRAGMA statement only. Do not output any explanation.' },
+         { role: 'user', content: `Schema: ${schemaHint}\n\nConvert the following user request into a single valid SQLite SELECT (or PRAGMA) statement. Add LIMIT 100 if appropriate.\n\nUser: ${nl}` }
+      ];
+
+      try {
+         const resp = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages,
+            max_tokens: 512,
+            temperature: 0
+         });
+
+         const candidate = resp.choices?.[0]?.message?.content?.trim();
+         const sql = sanitizeSqlCandidate(candidate);
+         if (!sql) return { sql: null, reason: 'LLM produced unsafe or invalid SQL' };
+         return { sql, reason: 'via OpenAI' };
+      } catch (err) {
+         return { sql: null, reason: 'LLM error: ' + err.message };
+      }
+   }
+   ```
+
+   **Security note:** Always inspect and validate LLM-generated SQL before trusting it. In production, restrict to SELECT-only and implement authentication and per-user data isolation.
+
+   ---
+
+   ## Step-by-step: Add OpenAI (for AI engineers)
+
+   1. Add key to `.env` in project root:
+   ```
+   OPENAI_API_KEY=sk-REPLACE_ME
+   PORT=4000
+   ```
+   2. Install SDK in server:
+   ```powershell
+   cd server
+   npm install openai
+   cd ..
+   ```
+   3. Paste the function above into `server/server.js` (or ask me to apply it).
+   4. Restart server and test from the front-end.
+
+   ---
+
+   ## Pushing to GitHub (simple guide)
+
+   If you already have a remote, push with:
 
    ```powershell
    git add .
-   git commit -m "Update: add README and OpenAI instructions"
+   git commit -m "Update README: add LLM instructions"
    git push
    ```
 
-   If you prefer, I can create a small script file that runs these commands for you.
+   ---
+
+   ## Troubleshooting & FAQs
+
+   - If `npm install` fails due to native modules, the project uses `sqlite`/`sqlite3` so it should avoid native build problems.
+   - If the frontend doesn't load, check Vite logs for "Local: http://localhost:5173".
+   - If server errors, read the console logs. Common issues: locked DB file, missing env vars, or missing `openai` package when trying to use LLM.
 
    ---
 
-   ## Troubleshooting & FAQs (Windows common issues)
+   ## Schema (high level)
 
-   - If `npm install` fails because of native modules, I've already replaced `better-sqlite3` with the pure JS `sqlite`/`sqlite3` approach that doesn't require compiling native binaries.
-   - If the frontend doesn't load, check that Vite started and shows "Local: http://localhost:5173" in the terminal.
-   - If the server crashes on startup, open `server/server.js` and check the terminal logs — common missing piece is a locked or busy database file. Closing the app and re-running `npm run dev` usually fixes it.
+   Tables included: `customers`, `branches`, `accounts`, `transactions`, `loans`, `loan_payments`, `cards`, `beneficiaries`, `transfers`, `audit_logs`.
 
    ---
 
-   ## Want me to do the Git push for you?
+   ## Example Queries
 
-   I can prepare a helper script that runs the recommended git commands. If you want, tell me to create it and I will add `scripts/push_to_github.ps1` and instructions.
-
-   ---
-
-   ## Final notes
-
-   Tell your partner to:
-
-   1. Install Node.js (LTS) on their PC
-   2. Clone the repo
-   3. Add their OpenAI key to `.env` (if they want LLM capability)
-   4. Run `npm run dev` and open http://localhost:5173
-
-   If you want, I can: add the OpenAI wiring now, add the push helper script, or make the server validate SQL to enforce SELECT-only queries. Which of these would you like me to do next?
-- `transfers` - Money transfers
-- `cards` - Credit/debit cards
-- `branches` - Bank branches
-- `audit_logs` - Activity audit trail
-
-## Example Queries
-
-Try asking:
-- "What was my biggest transaction last month?"
-- "Show all transactions"
-- "How much did I send to John last year?"
-- "List my recent groceries purchases"
+   - "What was my biggest transaction last month?"
+   - "Show all transactions"
+   - "How much did I send to John last year?"
+   - "List my recent groceries purchases"
